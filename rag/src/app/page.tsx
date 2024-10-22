@@ -1,9 +1,11 @@
+'use client'
+
 import RAGChatbot from "@/components/Chatbot"
 
 export default function Page() {
   return (
-    <div>
+    <main className="min-h-screen">
       <RAGChatbot />
-    </div>
+    </main>
   )
 }

@@ -66,20 +66,32 @@ async function* generateResponseStream(prompt: string): AsyncGenerator<{
       { role: 'user', content: humanMessage.content as string }
     ],
     stream: true,
-    max_tokens: 2048, 
+    max_tokens: 4096,
+    temperature: 0.7,
+    presence_penalty: 0.1,
   });
 
   let accumulatedContent = '';
-  for await (const chunk of stream) {
-    const content = chunk.choices[0]?.delta?.content || "";
-    if (content || chunk.choices[0]?.finish_reason === 'stop') {  // Check for finish_reason
-      accumulatedContent += content;
-      yield { 
-        content: accumulatedContent, 
-        citations,
-        done: chunk.choices[0]?.finish_reason === 'stop'  // Add done flag
-      };
+  try {
+    for await (const chunk of stream) {
+      const content = chunk.choices[0]?.delta?.content || "";
+      if (content || chunk.choices[0]?.finish_reason === 'stop') {
+        accumulatedContent += content;
+        yield { 
+          content: accumulatedContent, 
+          citations,
+          done: chunk.choices[0]?.finish_reason === 'stop'
+        };
+      }
     }
+  } catch (error) {
+    console.error('Streaming error:', error);
+    // Yield the partial content we have so far
+    yield {
+      content: accumulatedContent + "\n\n[Error: Response was cut off]",
+      citations,
+      done: true
+    };
   }
 }
 
@@ -99,25 +111,37 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No valid input provided' }, { status: 400 });
     }
 
+    let accumulatedContent = ''; // Add this line
     return new Response(
       new ReadableStream({
         async start(controller) {
-          for await (const { content, citations, done } of generateResponseStream(lastMessage.content)) {
-            const responseChunk = JSON.stringify({ content, citations, done });
-            controller.enqueue(new TextEncoder().encode(responseChunk));
-            
-            // Send an empty chunk to ensure the last content is flushed
-            if (done) {
-              controller.enqueue(new TextEncoder().encode('\n'));
+          try {
+            for await (const { content, citations, done } of generateResponseStream(lastMessage.content)) {
+              accumulatedContent = content; // Track the content
+              const responseChunk = JSON.stringify({ content, citations, done }) + '\n';
+              controller.enqueue(new TextEncoder().encode(responseChunk));
+              
+              // Add a small delay between chunks to prevent overwhelming
+              await new Promise(resolve => setTimeout(resolve, 10));
             }
+          } catch (error) {
+            console.error('Stream processing error:', error);
+            const errorChunk = JSON.stringify({ 
+              content: accumulatedContent + "\n\n[Error: Stream was interrupted]", 
+              citations: [], // Initialize empty citations array for error case
+              done: true 
+            }) + '\n';
+            controller.enqueue(new TextEncoder().encode(errorChunk));
+          } finally {
+            controller.close();
           }
-          controller.close();
         },
       }),
       {
         headers: {
           'Content-Type': 'application/json',
-          'Transfer-Encoding': 'chunked',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
         },
       }
     );
