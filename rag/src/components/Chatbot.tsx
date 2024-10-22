@@ -114,8 +114,7 @@ export default function RAGChatbot() {
                     : msg
                 )
               );
-            } catch (e) {
-              // Ignore parse errors for citations
+            } catch { 
             }
           }
         } catch (e) {
