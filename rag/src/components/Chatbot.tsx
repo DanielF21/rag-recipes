@@ -1,85 +1,161 @@
-"use client"
-import { useState } from 'react'
-import { SuggestionCard } from './SuggestionCard'
-import { CitationCard } from './CitationCard'
-import { ChatMessage } from './ChatMessage'
-import { ChatInput } from './ChatInput'
-import { AnimatedTitle } from './AnimatedTitle'
+'use client';
+
+import { useState, useRef, useEffect } from 'react';
+import { ChatMessage } from './ChatMessage';
+import { ChatInput } from './ChatInput';
+import { AnimatedTitle } from './AnimatedTitle';
+import { ExportButton } from './ExportButton';
+import { v4 as uuidv4 } from 'uuid';
+
+interface Message {
+  id: string;
+  content: string;
+  role: 'user' | 'assistant';
+  citations?: Array<{ url: string; title: string }>;
+}
 
 export default function RAGChatbot() {
-  const [messages, setMessages] = useState<Array<{ content: string; isUser: boolean }>>([])
-  const [citations, setCitations] = useState<Array<{ text: string; url: string }>>([])
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState('');
+  const [content, setContent] = useState('');
+  const messageContainerRef = useRef<HTMLDivElement>(null);
 
-  const handleSubmit = (query: string) => {
-    setMessages(prev => [...prev, { content: query, isUser: true }])
+  useEffect(() => {
+    if (messageContainerRef.current) {
+      const scrollToBottom = () => {
+        messageContainerRef.current?.scrollTo({
+          top: messageContainerRef.current?.scrollHeight,
+          behavior: 'smooth'
+        });
+      };
+      
+      scrollToBottom();
+      setTimeout(scrollToBottom, 100);
+    }
+  }, [messages, content]);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInput(e.target.value);
+  };
+
+  const handleSubmitWrapper = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
     
-    // TODO: Implement RAG chatbot logic here
-    setTimeout(() => {
-      setMessages(prev => [...prev, { content: `You asked about: ${query}`, isUser: false }])
-      setCitations(prev => [...prev, { text: 'Sample citation', url: 'https://example.com' }])
-    }, 1000)
-  }
+    if (!input.trim()) return;
+    
+    try {
+      const userMessage: Message = { id: uuidv4(), role: 'user', content: input };
+      setMessages(prev => [...prev, userMessage]);
+      setInput('');
 
-  const suggestions = [
-    { emoji: '💰', text: 'Card 1' },
-    { emoji: '🔍', text: 'Card 2' },
-    { emoji: '🧊', text: 'Card 3' },
-    { emoji: '🏔️', text: 'Card 4' },
-  ]
+      const assistantMessage: Message = {
+        id: uuidv4(),
+        role: 'assistant',
+        content: '',
+        citations: []
+      };
+      setMessages(prev => [...prev, assistantMessage]);
+
+      const response = await fetch('/api/pinecone', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: [userMessage] }),
+      });
+
+      if (!response.ok) throw new Error('Failed to fetch');
+      
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('No reader available');
+
+      const decoder = new TextDecoder();
+      
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        
+        const chunk = decoder.decode(value, { stream: true });
+        
+        try {
+          const contentMatch = chunk.match(/"content":\s*"([^"]*)/);
+          if (contentMatch && contentMatch[1]) {
+            const newContent = contentMatch[1].replace(/\\n/g, '\n');
+            setContent(newContent);
+            setMessages(prev => 
+              prev.map(msg => 
+                msg.id === assistantMessage.id 
+                  ? { ...msg, content: newContent }
+                  : msg
+              )
+            );
+          }
+
+          if (chunk.includes('"done":true')) {
+            const finalContentMatch = chunk.match(/"content":\s*"([^"]*)/);
+            if (finalContentMatch && finalContentMatch[1]) {
+              const finalContent = finalContentMatch[1].replace(/\\n/g, '\n');
+              setMessages(prev => 
+                prev.map(msg => 
+                  msg.id === assistantMessage.id 
+                    ? { ...msg, content: finalContent }
+                    : msg
+                )
+              );
+            }
+          }
+
+          const citationsMatch = chunk.match(/"citations":\s*(\[[^\]]+\])/);
+          if (citationsMatch && citationsMatch[1]) {
+            try {
+              const citations = JSON.parse(citationsMatch[1]);
+              setMessages(prev => 
+                prev.map(msg => 
+                  msg.id === assistantMessage.id 
+                    ? { ...msg, citations }
+                    : msg
+                )
+              );
+            } catch (e) {
+              // Ignore parse errors for citations
+            }
+          }
+        } catch (e) {
+          console.error('Error processing chunk:', e);
+        }
+      }
+
+    } catch (error) {
+      console.error('Error:', error);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-900 to-gray-800 flex flex-col items-center justify-center p-4">
-      <div className="w-full max-w-5xl space-y-12">
+      <div className="w-full max-w-5xl flex flex-col space-y-4 h-full">
         <AnimatedTitle 
-          title="Ask me about Cooking"
-          subtitle="I know over 1000 recipes"
+          title="Ask me about Mexican Food"
+          subtitle="I know over 3000 recipes"
         />
         
-        <ChatInput onSubmit={handleSubmit} />
-        
-        <div className="space-y-12">
-          {messages.length > 0 ? (
-            <>
-              <div className="space-y-8">
-                {messages.map((message, index) => (
-                  <ChatMessage key={index} content={message.content} isUser={message.isUser} />
-                ))}
-              </div>
-              
-              {citations.length > 0 && (
-                <div>
-                  <h2 className="text-white text-3xl mb-6">Citations</h2>
-                  <div className="grid grid-cols-1 gap-8">
-                    {citations.map((citation, index) => (
-                      <CitationCard key={index} url={citation.url}>
-                        <div className="h-full flex items-center justify-center p-9">
-                          <p className="text-white font-medium text-center text-3xl">
-                            {citation.text}
-                          </p>
-                        </div>
-                      </CitationCard>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </>
-          ) : (
-            <div>
-              <h2 className="text-white text-3xl mb-8">Suggested queries</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                {suggestions.map((suggestion, index) => (
-                  <SuggestionCard
-                    key={index}
-                    emoji={suggestion.emoji}
-                    text={suggestion.text}
-                    onClick={() => handleSubmit(suggestion.text)}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
+        <div ref={messageContainerRef} className="flex-grow overflow-y-auto space-y-8">
+          {messages.map((message) => (
+            <ChatMessage 
+              key={message.id}
+              content={message.content}
+              isUser={message.role === 'user'}
+              citations={message.citations || []}
+            />
+          ))}
+        </div>
+
+        <div className="flex items-center space-x-1">
+          <ChatInput 
+            input={input}
+            handleInputChange={handleInputChange}
+            handleSubmit={handleSubmitWrapper}
+          />
+          <ExportButton messages={messages} />
         </div>
       </div>
     </div>
-  )
+  );
 }

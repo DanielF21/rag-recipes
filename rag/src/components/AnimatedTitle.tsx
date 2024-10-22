@@ -42,7 +42,7 @@ export function AnimatedTitle({ title, subtitle }: AnimatedTitleProps) {
       <h1 className="text-6xl font-bold text-white mb-6 whitespace-pre-line">
         {displayedText.split('\n')[0]}
       </h1>
-      <p className="text-teal-400 text-3xl">
+      <p className="text-teal-600 text-3xl">
         {displayedText.split('\n')[1]}
         {!isTypingTitle && showCaret && <span className="animate-blink">|</span>}
       </p>
