@@ -53,8 +53,8 @@ async function* generateResponseStream(prompt: string): AsyncGenerator<{
                          You are given some context and a question. Your task is to answer the question based on the context provided.
                          You may only asnwer if its about mexican food. If the user question is about anything that is not mexican food, say 'I'm sorry, I don't know anything about that.
                          Answer as concisely and as unbiased as possible. No need to have verbose details. Here is the context:\n${context}
-                         If you recognize the query as a question about mexican food, answer it.
-                         Finally, format your response as markdown.`;
+                         If you recognize the query as a question about mexican food, answer it, otherwise do not.
+                         Finally, format your response in markdown text.`;
 
   const systemMessage = new SystemMessage(initialPrompt);
   const humanMessage = new HumanMessage(`${prompt}`);
